@@ -2,7 +2,9 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- страница целиком не масштабируется: иначе в Telegram можно «застрять» в увеличении;
+     увеличивает только просмотрщик (двойной тап, щипок двумя пальцами) -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Комикс Excalibur</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -63,13 +65,22 @@ body { background: radial-gradient(120% 60% at 100% 0%, rgba(254,44,85,.18), tra
   box-shadow: 0 6px 24px rgba(37,244,238,.35); }
 .hint { text-align: center; color: var(--muted); font-size: 12px; font-weight: 700; margin-top: 8px; min-height: 16px; }
 
-/* увеличение: двойной тап — картинка во всю ширину x2, дальше щипком и пальцем */
+/* увеличение: двойной тап — картинка x2, щипок двумя пальцами — ближе/дальше, палец — двигать.
+   Кнопка «Закрыть» — отдельно от прокручиваемого слоя (на iPhone fixed внутри прокрутки уезжает)
+   и внизу, где её не закрывает шапка Telegram */
 .zoom { position: fixed; inset: 0; background: rgba(8,9,12,.97); overflow: auto; display: none; z-index: 10;
-  -webkit-overflow-scrolling: touch; }
-.zoom.on { display: block; }
-.zoom img { width: 200%; max-width: none; display: block; }
-.zoom .close { position: fixed; top: calc(var(--safe-top) + 12px); right: 12px; width: 44px; height: 44px;
-  border-radius: 50%; border: 1px solid var(--line); background: rgba(0,0,0,.6); color: #fff; font-size: 20px; }
+  -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-x pan-y; }
+.zoomed .zoom { display: block; }
+.zoom img { width: 200%; max-width: none; display: block; user-select: none; -webkit-user-drag: none; }
+.zclose { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--safe-bottom) + 18px);
+  z-index: 11; display: none; height: 48px; padding: 0 22px; border-radius: 999px; border: 1px solid var(--line);
+  background: rgba(22,24,30,.92); color: #fff; font: 800 15px Manrope, sans-serif; gap: 8px; align-items: center;
+  box-shadow: 0 6px 24px rgba(0,0,0,.5); backdrop-filter: blur(10px); cursor: pointer; }
+.zoomed .zclose { display: flex; }
+.zhint { position: fixed; top: calc(var(--safe-top) + 14px); left: 50%; transform: translateX(-50%); z-index: 11;
+  display: none; background: rgba(22,24,30,.85); border-radius: 999px; padding: 7px 14px; font-size: 12px;
+  font-weight: 700; color: var(--muted); white-space: nowrap; transition: opacity .6s; pointer-events: none; }
+.zoomed .zhint { display: block; }
 
 .toast { position: fixed; left: 50%; bottom: calc(var(--safe-bottom) + 96px); transform: translate(-50%, 20px);
   background: rgba(22,24,30,.95); border: 1px solid var(--line); border-radius: 999px; padding: 10px 16px;
@@ -95,7 +106,9 @@ body { background: radial-gradient(120% 60% at 100% 0%, rgba(254,44,85,.18), tra
   </div>
   <div class="hint" id="hint">Листай свайпом · двойной тап — увеличить</div>
 </div>
-<div class="zoom" id="zoom"><img id="zoomImg" alt=""><button class="close" id="zoomClose" aria-label="Закрыть">✕</button></div>
+<div class="zoom" id="zoom"><img id="zoomImg" alt=""></div>
+<button class="zclose" id="zoomClose">✕ Закрыть</button>
+<div class="zhint" id="zoomHint">Двумя пальцами — ближе/дальше · тап — закрыть</div>
 <div class="toast" id="toast"><span id="toastText"></span><button id="toastBtn">С начала</button></div>
 
 <script>
@@ -207,18 +220,82 @@ body { background: radial-gradient(120% 60% at 100% 0%, rgba(254,44,85,.18), tra
   });
 
   // увеличение
+  const zoom = $('zoom'), zimg = $('zoomImg');
+  let z = 2;                                     // во сколько раз шире экрана
+  const inTg = !!(tg && tg.initData);
+  function setZoom(nz, cx, cy) {
+    // точка под пальцами остаётся на месте
+    nz = Math.max(1, Math.min(4, nz));
+    const x = (zoom.scrollLeft + cx) / z, y = (zoom.scrollTop + cy) / z;
+    z = nz;
+    zimg.style.width = (z * 100) + '%';
+    zoom.scrollLeft = x * z - cx;
+    zoom.scrollTop = y * z - cy;
+  }
   function openZoom(src) {
-    $('zoomImg').src = src;
-    $('zoom').classList.add('on');
-    $('zoom').scrollTo(width() / 2, 0);
+    zimg.src = src;
+    z = 2;
+    zimg.style.width = '200%';
+    document.body.classList.add('zoomed');
+    zoom.scrollTo(zoom.clientWidth / 2, 0);
+    $('zoomHint').style.opacity = 1;
+    setTimeout(() => { $('zoomHint').style.opacity = 0; }, 2500);
+    try { if (inTg && tg.BackButton) tg.BackButton.show(); } catch (e) {}
+    // иначе движение пальцем вниз по картинке Telegram примет за «свернуть приложение»
+    try { if (inTg && tg.disableVerticalSwipes) tg.disableVerticalSwipes(); } catch (e) {}
   }
-  function closeZoom() { $('zoom').classList.remove('on'); }
+  function closeZoom() {
+    if (!document.body.classList.contains('zoomed')) return;
+    document.body.classList.remove('zoomed');
+    try { if (inTg && tg.BackButton) tg.BackButton.hide(); } catch (e) {}
+    try { if (inTg && tg.enableVerticalSwipes) tg.enableVerticalSwipes(); } catch (e) {}
+  }
   $('zoomClose').onclick = closeZoom;
-  if (tg && tg.initData && tg.BackButton) {
-    const sync = () => $('zoom').classList.contains('on') ? tg.BackButton.show() : tg.BackButton.hide();
-    new MutationObserver(sync).observe($('zoom'), { attributes: true });
-    tg.BackButton.onClick(closeZoom);
-  }
+  try { if (inTg && tg.BackButton) tg.BackButton.onClick(closeZoom); } catch (e) {}
+
+  // жесты в просмотрщике: один короткий тап — закрыть, два пальца — масштаб, палец — двигать
+  let tap = null, pinch = null, pinched = false;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  zoom.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      pinch = { d: dist(e.touches), z };
+      pinched = true; tap = null;
+    } else if (e.touches.length === 1) {
+      pinched = false;
+      tap = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() };
+    }
+  }, { passive: true });
+  zoom.addEventListener('touchmove', e => {
+    if (pinch && e.touches.length === 2) {
+      e.preventDefault();
+      const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      setZoom(pinch.z * dist(e.touches) / pinch.d, cx, cy);
+    } else if (tap) {
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - tap.x) > 10 || Math.abs(t.clientY - tap.y) > 10) tap = null;
+    }
+  }, { passive: false });
+  zoom.addEventListener('touchend', e => {
+    if (e.touches.length < 2) pinch = null;
+    if (tap && !pinched && e.touches.length === 0 && Date.now() - tap.t < 300) {
+      e.preventDefault();                          // не дать «призрачному» клику пройти под просмотрщик
+      closeZoom();
+    }
+    if (e.touches.length === 0) tap = null;
+  }, { passive: false });
+  // мышь (компьютер): клик без перетаскивания — закрыть, колесо с Ctrl — масштаб
+  let down = null;
+  zoom.addEventListener('mousedown', e => { down = { x: e.clientX, y: e.clientY }; });
+  zoom.addEventListener('click', e => {
+    if (down && Math.abs(e.clientX - down.x) < 6 && Math.abs(e.clientY - down.y) < 6) closeZoom();
+    down = null;
+  });
+  zoom.addEventListener('wheel', e => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    setZoom(z * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY);
+  }, { passive: false });
 
   // продолжить с того места, где остановилась
   function toast(text) {
