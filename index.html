@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Комикс Excalibur</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700;800&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0c0d11; --ink: #fff; --muted: rgba(255,255,255,.62); --cyan: #25f4ee; --pink: #fe2c55;
+  --glass: rgba(255,255,255,.07); --line: rgba(255,255,255,.12);
+  --safe-top: env(safe-area-inset-top, 0px); --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; background: var(--bg); color: var(--ink); font-family: Manrope, system-ui, sans-serif;
+  overflow: hidden; overscroll-behavior: none; }
+body { background: radial-gradient(120% 60% at 100% 0%, rgba(254,44,85,.18), transparent 60%),
+       radial-gradient(90% 50% at 0% 100%, rgba(37,244,238,.14), transparent 60%), var(--bg); }
+.app { position: fixed; inset: 0; display: flex; flex-direction: column;
+  padding: calc(var(--safe-top) + 10px) 0 calc(var(--safe-bottom) + 10px); }
+
+/* верх: название, счётчик, полоска прогресса */
+.top { padding: 0 16px 10px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand { font: 800 11px Unbounded, sans-serif; letter-spacing: .24em; }
+.brand i { font-style: normal; background: var(--pink); font-size: 8px; letter-spacing: .08em; padding: 2px 6px;
+  border-radius: 4px; margin-left: 6px; vertical-align: 2px; }
+.count { font: 800 14px Unbounded, sans-serif; font-variant-numeric: tabular-nums; }
+.count span { color: var(--muted); font-weight: 700; }
+.bar { display: flex; gap: 4px; margin-top: 10px; }
+.bar b { flex: 1; height: 4px; border-radius: 3px; background: var(--line); transition: background .25s, box-shadow .25s; }
+.bar b.done { background: rgba(37,244,238,.55); }
+.bar b.now { background: var(--cyan); box-shadow: 0 0 10px rgba(37,244,238,.8); }
+.bar b.soon { background: repeating-linear-gradient(90deg, var(--line) 0 4px, transparent 4px 7px); }
+
+/* лента страниц: свайп — родная прокрутка со «щелчком» по странице */
+.track { flex: 1; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory;
+  scrollbar-width: none; min-height: 0; }
+.track::-webkit-scrollbar { display: none; }
+.page { flex: 0 0 100%; scroll-snap-align: center; scroll-snap-stop: always; display: flex;
+  align-items: center; justify-content: center; padding: 0 12px; min-height: 0; }
+.page img { max-width: 100%; max-height: 100%; border-radius: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.55),
+  0 0 0 1px var(--line); user-select: none; -webkit-user-drag: none; background: #15161b; }
+.soon { flex-direction: column; text-align: center; gap: 14px; padding: 0 32px; }
+.soon .big { font: 800 24px/1.2 Unbounded, sans-serif; }
+.soon .big em { font-style: normal; color: var(--cyan); text-shadow: 0 0 18px rgba(37,244,238,.6); }
+.soon p { color: var(--muted); font-weight: 700; font-size: 15px; line-height: 1.45; }
+.sparkle { font-size: 54px; filter: drop-shadow(0 0 16px rgba(254,44,85,.6)); }
+
+/* низ: стрелки и кнопка в конце */
+.nav { display: flex; gap: 10px; padding: 12px 16px 0; align-items: center; }
+.btn { border: 1px solid var(--line); background: var(--glass); color: var(--ink); border-radius: 14px;
+  height: 52px; font: 800 15px Manrope, sans-serif; display: flex; align-items: center; justify-content: center;
+  gap: 8px; cursor: pointer; transition: transform .12s, opacity .2s; backdrop-filter: blur(10px); }
+.btn:active { transform: scale(.96); }
+.btn[disabled] { opacity: .3; pointer-events: none; }
+.btn.arrow { width: 64px; font-size: 22px; flex: none; }
+.btn.main { flex: 1; background: linear-gradient(90deg, var(--pink), #ff5c7c); border-color: transparent;
+  box-shadow: 0 6px 24px rgba(254,44,85,.45); }
+.btn.main.cyan { background: linear-gradient(90deg, #0fd3cd, var(--cyan)); color: #06282a;
+  box-shadow: 0 6px 24px rgba(37,244,238,.35); }
+.hint { text-align: center; color: var(--muted); font-size: 12px; font-weight: 700; margin-top: 8px; min-height: 16px; }
+
+/* увеличение: двойной тап — картинка во всю ширину x2, дальше щипком и пальцем */
+.zoom { position: fixed; inset: 0; background: rgba(8,9,12,.97); overflow: auto; display: none; z-index: 10;
+  -webkit-overflow-scrolling: touch; }
+.zoom.on { display: block; }
+.zoom img { width: 200%; max-width: none; display: block; }
+.zoom .close { position: fixed; top: calc(var(--safe-top) + 12px); right: 12px; width: 44px; height: 44px;
+  border-radius: 50%; border: 1px solid var(--line); background: rgba(0,0,0,.6); color: #fff; font-size: 20px; }
+
+.toast { position: fixed; left: 50%; bottom: calc(var(--safe-bottom) + 96px); transform: translate(-50%, 20px);
+  background: rgba(22,24,30,.95); border: 1px solid var(--line); border-radius: 999px; padding: 10px 16px;
+  font-weight: 700; font-size: 13px; opacity: 0; transition: .3s; display: flex; gap: 12px; align-items: center;
+  white-space: nowrap; z-index: 5; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+.toast button { background: none; border: 0; color: var(--cyan); font: 800 13px Manrope, sans-serif; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <div class="row">
+      <div class="brand">EXCALIBUR<i>LIVE</i></div>
+      <div class="count" id="count">1 <span>/ 1</span></div>
+    </div>
+    <div class="bar" id="bar"></div>
+  </div>
+  <div class="track" id="track"></div>
+  <div class="nav">
+    <button class="btn arrow" id="prev" aria-label="Назад">←</button>
+    <button class="btn main" id="next">Дальше →</button>
+  </div>
+  <div class="hint" id="hint">Листай свайпом · двойной тап — увеличить</div>
+</div>
+<div class="zoom" id="zoom"><img id="zoomImg" alt=""><button class="close" id="zoomClose" aria-label="Закрыть">✕</button></div>
+<div class="toast" id="toast"><span id="toastText"></span><button id="toastBtn">С начала</button></div>
+
+<script>
+(async function () {
+  const tg = window.Telegram && window.Telegram.WebApp;
+  // облачное хранилище Telegram есть только внутри Telegram и с версии 6.9
+  const cloud = !!(tg && tg.initData && tg.isVersionAtLeast && tg.isVersionAtLeast('6.9') && tg.CloudStorage);
+  if (tg && tg.initData) {
+    tg.ready(); tg.expand();
+    try { tg.setHeaderColor('#0c0d11'); tg.setBackgroundColor('#0c0d11'); } catch (e) {}
+  }
+  const $ = id => document.getElementById(id);
+  const track = $('track'), bar = $('bar'), count = $('count'), prev = $('prev'), next = $('next');
+
+  let data = { pages: [], planned: 0 };
+  try { data = await (await fetch('pages.json', { cache: 'no-cache' })).json(); } catch (e) {}
+  const pages = data.pages || [];
+  const planned = Math.max(data.planned || 0, pages.length);
+  const hasSoon = planned > pages.length;
+  const slides = pages.length + (hasSoon ? 1 : 0);
+
+  // страницы
+  pages.forEach((p, i) => {
+    const s = document.createElement('div');
+    s.className = 'page';
+    const img = new Image();
+    img.alt = `Страница ${i + 1}`;
+    img.decoding = 'async';
+    img.width = p.w; img.height = p.h;
+    img.dataset.src = p.src;
+    if (i < 2) img.src = p.src;
+    img.addEventListener('dblclick', () => openZoom(p.src));
+    let lastTap = 0;
+    img.addEventListener('touchend', e => {
+      const now = Date.now();
+      if (now - lastTap < 280) { e.preventDefault(); openZoom(p.src); }
+      lastTap = now;
+    });
+    s.appendChild(img);
+    track.appendChild(s);
+  });
+  if (hasSoon) {
+    const s = document.createElement('div');
+    s.className = 'page soon';
+    s.innerHTML = `<div class="sparkle">✨</div>
+      <div class="big">Продолжение<br><em>скоро</em></div>
+      <p>Нарисовано ${pages.length} из ${planned} страниц.<br>Загляни сюда через пару дней!</p>`;
+    track.appendChild(s);
+  }
+  for (let i = 0; i < planned; i++) {
+    const b = document.createElement('b');
+    if (i >= pages.length) b.className = 'soon';
+    bar.appendChild(b);
+  }
+
+  // где мы и куда листать
+  let cur = 0;
+  const width = () => track.clientWidth || 1;
+  function go(i, smooth = true) {
+    i = Math.max(0, Math.min(slides - 1, i));
+    track.scrollTo({ left: i * width(), behavior: smooth ? 'smooth' : 'auto' });
+  }
+  function load(i) {
+    const img = track.children[i] && track.children[i].querySelector('img[data-src]');
+    if (img && !img.getAttribute('src')) img.src = img.dataset.src;
+  }
+  function render() {
+    const onSoon = hasSoon && cur === slides - 1;
+    const shown = Math.min(cur + 1, pages.length);
+    count.innerHTML = onSoon ? `✨ <span>/ ${planned}</span>` : `${shown} <span>/ ${planned}</span>`;
+    [...bar.children].forEach((b, i) => {
+      b.classList.toggle('now', !onSoon && i === cur);
+      b.classList.toggle('done', i < cur && i < pages.length);
+    });
+    prev.disabled = cur === 0;
+    const last = cur === slides - 1;
+    next.textContent = last ? (onSoon ? 'Закрыть' : 'Готово! 🎉') : 'Дальше →';
+    next.classList.toggle('cyan', last);
+    [cur - 1, cur, cur + 1, cur + 2].forEach(load);
+  }
+  let saveTimer;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      const v = String(Math.min(cur, pages.length - 1));
+      try { if (cloud) tg.CloudStorage.setItem('comic_page', v); } catch (e) {}
+      try { localStorage.setItem('comic_page', v); } catch (e) {}
+    }, 300);
+  }
+  // номер страницы — прямо из прокрутки (дёшево, и не зависит от отрисовки кадров)
+  track.addEventListener('scroll', () => {
+    const i = Math.round(track.scrollLeft / width());
+    if (i !== cur) {
+      cur = i;
+      render(); save();
+      try { if (tg && tg.initData && tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); } catch (e) {}
+    }
+  }, { passive: true });
+  window.addEventListener('resize', () => go(cur, false));
+  prev.onclick = () => go(cur - 1);
+  next.onclick = () => {
+    if (cur < slides - 1) return go(cur + 1);
+    if (tg && tg.initData) tg.close(); else go(0);
+  };
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight') go(cur + 1);
+    if (e.key === 'ArrowLeft') go(cur - 1);
+    if (e.key === 'Escape') closeZoom();
+  });
+
+  // увеличение
+  function openZoom(src) {
+    $('zoomImg').src = src;
+    $('zoom').classList.add('on');
+    $('zoom').scrollTo(width() / 2, 0);
+  }
+  function closeZoom() { $('zoom').classList.remove('on'); }
+  $('zoomClose').onclick = closeZoom;
+  if (tg && tg.initData && tg.BackButton) {
+    const sync = () => $('zoom').classList.contains('on') ? tg.BackButton.show() : tg.BackButton.hide();
+    new MutationObserver(sync).observe($('zoom'), { attributes: true });
+    tg.BackButton.onClick(closeZoom);
+  }
+
+  // продолжить с того места, где остановилась
+  function toast(text) {
+    $('toastText').textContent = text;
+    $('toast').classList.add('on');
+    setTimeout(() => $('toast').classList.remove('on'), 4000);
+  }
+  $('toastBtn').onclick = () => { go(0); $('toast').classList.remove('on'); };
+  function resume(v) {
+    const i = parseInt(v, 10);
+    if (i > 0 && i < pages.length) {
+      go(i, false); cur = i; render();
+      toast(`Продолжаем со страницы ${i + 1}`);
+    }
+  }
+  render();
+  let resumed = false;
+  try {
+    if (cloud) {
+      tg.CloudStorage.getItem('comic_page', (err, v) => { if (!err && v && !resumed) { resumed = true; resume(v); } });
+    }
+  } catch (e) {}
+  if (!resumed) {
+    try { const v = localStorage.getItem('comic_page'); if (v) { resumed = true; resume(v); } } catch (e) {}
+  }
+})();
+</script>
+</body>
+</html>
